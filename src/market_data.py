@@ -1,10 +1,11 @@
 """
 Dual-Market Data Ingestion Engine for Indian (NSE/BSE) and Global Equities.
-Connects via yfinance to extract fundamental ratios, financials, and news.
+Connects via yfinance to extract fundamental ratios, live trading data, charts, and news.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import yfinance as yf
+from datetime import datetime
 from src.constants import INDIAN_BLUECHIPS
 
 
@@ -55,9 +56,155 @@ def format_currency_value(value: Optional[float], currency: str) -> str:
         return f"${value:,.2f}"
 
 
+def fetch_live_news(stock: yf.Ticker) -> List[Dict[str, Any]]:
+    """Extract clean, structured live news items from yfinance."""
+    news_items = stock.news or []
+    cleaned_news = []
+    for item in news_items:
+        content = item.get("content") or {}
+        # Support both new yfinance (content subdict) and legacy flat dict
+        title = content.get("title") or item.get("title")
+        if not title:
+            continue
+
+        provider_obj = content.get("provider") or item.get("publisher") or {}
+        if isinstance(provider_obj, dict):
+            provider_name = provider_obj.get("displayName") or "Market News"
+        else:
+            provider_name = str(provider_obj) or "Market News"
+
+        url_obj = content.get("clickThroughUrl") or item.get("link") or {}
+        if isinstance(url_obj, dict):
+            article_url = url_obj.get("url") or "#"
+        else:
+            article_url = str(url_obj) or "#"
+
+        summary = content.get("summary") or content.get("description") or item.get("summary") or ""
+        pub_date = content.get("pubDate") or item.get("pubDate") or ""
+
+        # Format relative or ISO time
+        display_time = content.get("displayTime") or pub_date
+
+        thumbnail_obj = content.get("thumbnail") or item.get("thumbnail") or {}
+        thumb_url = None
+        if isinstance(thumbnail_obj, dict):
+            resolutions = thumbnail_obj.get("resolutions") or []
+            if resolutions and isinstance(resolutions, list):
+                thumb_url = resolutions[0].get("url")
+            else:
+                thumb_url = thumbnail_obj.get("url")
+
+        cleaned_news.append({
+            "id": item.get("id") or str(hash(title)),
+            "title": title,
+            "provider": provider_name,
+            "published_at": pub_date,
+            "display_time": display_time,
+            "summary": summary,
+            "url": article_url,
+            "thumbnail": thumb_url
+        })
+    return cleaned_news
+
+
+def fetch_chart_data(ticker: str, period: str = "1mo") -> Dict[str, Any]:
+    """
+    Fetch historical candles for charting.
+    Supported periods: '1d', '5d', '1mo', '6mo', '1y'.
+    """
+    meta = normalize_ticker(ticker)
+    symbol = meta["symbol"]
+    stock = yf.Ticker(symbol)
+
+    interval_map = {
+        "1d": ("1d", "5m"),
+        "5d": ("5d", "15m"),
+        "1mo": ("1mo", "1d"),
+        "6mo": ("6mo", "1d"),
+        "1y": ("1y", "1wk")
+    }
+    p, interval = interval_map.get(period, ("1mo", "1d"))
+
+    hist = stock.history(period=p, interval=interval)
+    if hist.empty:
+        # Fallback to default daily 1mo
+        hist = stock.history(period="1mo", interval="1d")
+
+    labels = []
+    prices = []
+    volumes = []
+    highs = []
+    lows = []
+
+    for idx, row in hist.iterrows():
+        if period == "1d":
+            labels.append(idx.strftime("%H:%M"))
+        elif period == "5d":
+            labels.append(idx.strftime("%a %H:%M"))
+        else:
+            labels.append(idx.strftime("%b %d"))
+        prices.append(round(float(row["Close"]), 2))
+        volumes.append(int(row["Volume"]))
+        highs.append(round(float(row["High"]), 2))
+        lows.append(round(float(row["Low"]), 2))
+
+    return {
+        "ticker": symbol,
+        "period": period,
+        "labels": labels,
+        "prices": prices,
+        "volumes": volumes,
+        "highs": highs,
+        "lows": lows,
+        "min_price": min(prices) if prices else 0,
+        "max_price": max(prices) if prices else 0,
+    }
+
+
+def fetch_market_indices() -> List[Dict[str, Any]]:
+    """
+    Fetch live ticker tape for major Indian and Global benchmarks.
+    """
+    index_symbols = [
+        {"name": "NIFTY 50", "symbol": "^NSEI", "region": "IN"},
+        {"name": "BSE SENSEX", "symbol": "^BSESN", "region": "IN"},
+        {"name": "BANK NIFTY", "symbol": "^NSEBANK", "region": "IN"},
+        {"name": "S&P 500", "symbol": "^GSPC", "region": "GLOBAL"},
+        {"name": "NASDAQ 100", "symbol": "^NDX", "region": "GLOBAL"},
+        {"name": "INDIA VIX", "symbol": "^INDIAVIX", "region": "IN"}
+    ]
+
+    results = []
+    for item in index_symbols:
+        try:
+            t = yf.Ticker(item["symbol"])
+            hist = t.history(period="2d")
+            if not hist.empty and len(hist) >= 1:
+                last_price = float(hist["Close"].iloc[-1])
+                prev_price = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else last_price
+                change = last_price - prev_price
+                change_pct = (change / prev_price * 100.0) if prev_price else 0.0
+            else:
+                last_price = 0.0
+                change = 0.0
+                change_pct = 0.0
+
+            results.append({
+                "name": item["name"],
+                "symbol": item["symbol"],
+                "region": item["region"],
+                "price": round(last_price, 2),
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2)
+            })
+        except Exception:
+            continue
+    return results
+
+
 def fetch_stock_state(ticker: str, preferred_market: Optional[str] = None) -> Dict[str, Any]:
     """
-    Fetches market data, financial ratios, and news to construct a unified StockState JSON.
+    Fetches real-time market data, financial ratios, live news, and constructs a unified StockState.
     """
     meta = normalize_ticker(ticker, preferred_market)
     symbol = meta["symbol"]
@@ -97,13 +244,22 @@ def fetch_stock_state(ticker: str, preferred_market: Optional[str] = None) -> Di
     company_name = info.get("longName") or info.get("shortName") or symbol
     market_cap = info.get("marketCap", 0)
 
-    # ---------------------------------------------------------------------
-    # Extract & Clean Financial Metrics
-    # ---------------------------------------------------------------------
+    # Live trading fields
+    prev_close = info.get("regularMarketPreviousClose") or info.get("previousClose") or current_price
+    day_open = info.get("regularMarketOpen") or info.get("open") or current_price
+    day_high = info.get("regularMarketDayHigh") or info.get("dayHigh") or current_price
+    day_low = info.get("regularMarketDayLow") or info.get("dayLow") or current_price
+    day_volume = info.get("regularMarketVolume") or info.get("volume") or 0
+    avg_volume = info.get("averageVolume") or 0
+
+    change_amt = current_price - prev_close
+    change_pct = (change_amt / prev_close * 100.0) if prev_close else 0.0
+
+    # Valuation & fundamental metrics
     pe_trailing = info.get("trailingPE")
     pe_forward = info.get("forwardPE")
     if not pe_forward and pe_trailing:
-        pe_forward = pe_trailing  # reasonable fallback proxy
+        pe_forward = pe_trailing
 
     ev_ebitda = info.get("enterpriseToEbitda")
     price_to_book = info.get("priceToBook")
@@ -120,18 +276,10 @@ def fetch_stock_state(ticker: str, preferred_market: Optional[str] = None) -> Di
     debt_to_equity = info.get("debtToEquity")
     current_ratio = info.get("currentRatio")
 
-    # ---------------------------------------------------------------------
-    # Qualitative Commentary: News & Highlights
-    # ---------------------------------------------------------------------
-    news_items = stock.news or []
-    recent_headlines = []
-    for item in news_items[:6]:
-        title = item.get("title") or (item.get("content") or {}).get("title")
-        publisher = item.get("publisher") or (item.get("content") or {}).get("provider", {}).get("displayName")
-        if title:
-            recent_headlines.append(f"• {title} (Source: {publisher or 'Market News'})")
-
-    news_text = "\n".join(recent_headlines) if recent_headlines else "No recent material headlines found."
+    # Fetch structured live news
+    structured_news = fetch_live_news(stock)
+    news_headlines = [f"• {item['title']} (Source: {item['provider']})" for item in structured_news[:6]]
+    news_text = "\n".join(news_headlines) if news_headlines else "No recent material headlines found."
 
     business_summary = info.get("longBusinessSummary", "")
     if len(business_summary) > 600:
@@ -142,13 +290,12 @@ def fetch_stock_state(ticker: str, preferred_market: Optional[str] = None) -> Di
     global_metrics = {}
 
     if market == "IN":
-        # Promoter pledge / holding proxies or defaults
         promoter_pledge_pct = 0.0
         promoter_holding_pct = 50.0
         india_metrics = {
             "promoter_holding_pct": promoter_holding_pct,
             "promoter_pledge_pct": promoter_pledge_pct,
-            "fii_holding_pct": info.get("heldPercentInstitutions", 0.20) * 100,
+            "fii_holding_pct": (info.get("heldPercentInstitutions") or 0.20) * 100,
             "regulatory_jurisdiction": "SEBI / RBI (India)",
             "benchmark_index": "NIFTY 50 / BSE SENSEX"
         }
@@ -159,10 +306,8 @@ def fetch_stock_state(ticker: str, preferred_market: Optional[str] = None) -> Di
             "benchmark_index": "S&P 500 / NASDAQ 100"
         }
 
-    # Guidance proxy from summary & targets
-    target_mean = info.get("targetMeanPrice")
     recommendation = info.get("recommendationKey", "hold").upper()
-
+    target_mean = info.get("targetMeanPrice")
     management_guidance_text = (
         f"Consensus analyst recommendation: {recommendation}. "
         f"Consensus 12M analyst mean target: {format_currency_value(target_mean, currency)}. "
@@ -177,8 +322,17 @@ def fetch_stock_state(ticker: str, preferred_market: Optional[str] = None) -> Di
         "exchange": exchange,
         "currency": currency,
         "current_price": round(current_price, 2),
+        "change_amount": round(change_amt, 2),
+        "change_pct": round(change_pct, 2),
+        "previous_close": round(prev_close, 2),
+        "day_open": round(day_open, 2),
+        "day_high": round(day_high, 2),
+        "day_low": round(day_low, 2),
+        "day_volume": day_volume,
+        "avg_volume": avg_volume,
         "market_cap": market_cap,
         "market_cap_formatted": format_currency_value(market_cap, currency),
+        "live_news": structured_news,
         "financial_metrics": {
             "pe_trailing": round(pe_trailing, 2) if pe_trailing else None,
             "pe_forward": round(pe_forward, 2) if pe_forward else None,

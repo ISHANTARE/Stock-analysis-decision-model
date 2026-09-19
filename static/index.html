@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quantamental AI | Dual-Market Stock Decision Engine (Powered by Jev)</title>
+  <meta name="description" content="Institutional-grade stock market analysis and decision engine combining deterministic valuation models with TypeSafe AI's Jev System One for Indian (NSE/BSE) and Global markets." />
+
+  <!-- Google Fonts: Outfit, Inter, JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+  <!-- ================================================================= -->
+  <!-- 1. LIVE TICKER TAPE BANNER                                        -->
+  <!-- ================================================================= -->
+  <div class="ticker-tape-container" id="ticker-tape-wrapper">
+    <div class="tape-label">
+      <span class="live-indicator-dot"></span> LIVE INDICES
+    </div>
+    <div class="ticker-tape" id="ticker-tape">
+      <div class="tape-item loading">Loading live indices...</div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- 2. NAVIGATION & SEARCH HEADER                                     -->
+  <!-- ================================================================= -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="brand-logo">
+        <div class="logo-gem">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">QUANTAMENTAL<span class="brand-accent">.AI</span></span>
+          <span class="brand-sub">TypeSafe AI • Jev System One</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Search Bar with Live Autocomplete -->
+    <div class="header-search">
+      <div class="search-input-wrapper">
+        <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input 
+          type="text" 
+          id="ticker-search-input" 
+          placeholder="Search Indian (RELIANCE, TCS, ZOMATO) or Global (NVDA, AAPL)..." 
+          autocomplete="off" 
+          spellcheck="false"
+        />
+        <span class="search-shortcut">⌘K</span>
+      </div>
+      <!-- Autocomplete Dropdown -->
+      <div class="autocomplete-dropdown" id="autocomplete-dropdown"></div>
+    </div>
+
+    <div class="header-right">
+      <button class="btn-primary" id="btn-run-analysis">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span>Evaluate Stock</span>
+      </button>
+      <button class="btn-secondary" id="btn-export-json" title="Download Full Quantamental JSON Report">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>JSON</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Popular Quick Chips -->
+  <div class="quick-chips-bar">
+    <span class="chips-label">Quick Select:</span>
+    <button class="chip-btn active" data-ticker="RELIANCE.NS">🇮🇳 RELIANCE</button>
+    <button class="chip-btn" data-ticker="TCS.NS">🇮🇳 TCS</button>
+    <button class="chip-btn" data-ticker="HDFCBANK.NS">🇮🇳 HDFC BANK</button>
+    <button class="chip-btn" data-ticker="TATAMOTORS.NS">🇮🇳 TATA MOTORS</button>
+    <button class="chip-btn" data-ticker="ZOMATO.NS">🇮🇳 ZOMATO</button>
+    <button class="chip-btn" data-ticker="NVDA">🇺🇸 NVDA</button>
+    <button class="chip-btn" data-ticker="AAPL">🇺🇸 AAPL</button>
+    <button class="chip-btn" data-ticker="TSLA">🇺🇸 TSLA</button>
+  </div>
+
+  <!-- Main App Layout Container -->
+  <main class="dashboard-main" id="dashboard-content">
+
+    <!-- Loading State Overlay -->
+    <div class="loading-overlay" id="loading-overlay" style="display: none;">
+      <div class="loading-spinner"></div>
+      <div class="loading-text" id="loading-status-text">Fetching real-time market data & financial disclosures...</div>
+      <div class="loading-subtext">Executing Jev Speculative Fan-out query in parallel</div>
+    </div>
+
+    <!-- =============================================================== -->
+    <!-- 3. HERO OVERVIEW: STOCK SNAPSHOT & DECISION BADGE               -->
+    <!-- =============================================================== -->
+    <section class="hero-grid">
+      <!-- Stock Snapshot Card -->
+      <div class="card stock-snapshot-card">
+        <div class="snapshot-header">
+          <div class="snapshot-identity">
+            <h1 class="stock-name" id="stock-name">Reliance Industries Limited</h1>
+            <div class="stock-badges">
+              <span class="badge badge-ticker" id="stock-ticker">RELIANCE.NS</span>
+              <span class="badge badge-market" id="stock-exchange">NSE • INDIA</span>
+              <span class="badge badge-currency" id="stock-currency">INR (₹)</span>
+            </div>
+          </div>
+          <div class="snapshot-price-block">
+            <div class="live-price-wrap">
+              <span class="live-price" id="stock-price">₹1,226.40</span>
+              <span class="live-price-pulse"></span>
+            </div>
+            <div class="price-change-pill positive" id="stock-change-pill">
+              <span id="stock-change-amt">+₹14.20</span>
+              <span id="stock-change-pct">(+1.17%)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- High/Low & Key Ratios Mini-Bar -->
+        <div class="snapshot-ranges-grid">
+          <div class="range-metric">
+            <div class="range-labels">
+              <span>Day Low: <b id="day-low">₹1,218.00</b></span>
+              <span class="range-title">Day Range</span>
+              <span>Day High: <b id="day-high">₹1,234.50</b></span>
+            </div>
+            <div class="range-progress-track">
+              <div class="range-progress-fill" id="day-range-fill" style="width: 55%;"></div>
+            </div>
+          </div>
+          <div class="range-metric">
+            <div class="range-labels">
+              <span>52W Low: <b id="fifty-two-low">₹1,120.00</b></span>
+              <span class="range-title">52-Week Range</span>
+              <span>52W High: <b id="fifty-two-high">₹1,608.80</b></span>
+            </div>
+            <div class="range-progress-track">
+              <div class="range-progress-fill" id="fifty-two-range-fill" style="width: 42%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="snapshot-quick-stats">
+          <div class="stat-pill">
+            <span class="stat-label">Market Cap</span>
+            <span class="stat-val" id="stat-mcap">₹16.60 Lakh Cr</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-label">Trailing P/E</span>
+            <span class="stat-val" id="stat-pe-trailing">22.52</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-label">Forward P/E</span>
+            <span class="stat-val" id="stat-pe-forward">17.18</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-label">EV / EBITDA</span>
+            <span class="stat-val" id="stat-ev-ebitda">10.97</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-label">Revenue Growth</span>
+            <span class="stat-val positive" id="stat-rev-growth">+29.7%</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-label">Dividend Yield</span>
+            <span class="stat-val" id="stat-div-yield">0.82%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recommendation & Expected Return Hero Card -->
+      <div class="card decision-hero-card" id="decision-card">
+        <div class="decision-card-top">
+          <div class="decision-sub">QUANTAMENTAL RECOMMENDATION</div>
+          <div class="action-banner buy" id="action-banner">
+            <span class="banner-pulse"></span>
+            <span id="action-text">BUY</span>
+          </div>
+        </div>
+
+        <div class="expected-return-block">
+          <div class="expected-return-val positive" id="expected-return-val">+37.13%</div>
+          <div class="expected-return-label">Expected 12-Month Potential Return</div>
+          <div class="target-price-display">
+            Expected Fair Value: <strong id="expected-target-price">INR 1,681.70</strong>
+          </div>
+        </div>
+
+        <div class="decision-confidence-meter">
+          <div class="confidence-labels">
+            <span>Model Confidence</span>
+            <span class="confidence-value" id="confidence-value">0.75 (High Conviction)</span>
+          </div>
+          <div class="confidence-track">
+            <div class="confidence-fill" id="confidence-fill" style="width: 75%;"></div>
+          </div>
+        </div>
+
+        <div class="decision-summary-box">
+          <p id="decision-summary-text">
+            Attractive risk/reward: +37.1% expected return with durable execution and steady guidance.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- =============================================================== -->
+    <!-- 4. INTERACTIVE CHART & VALUATION SCENARIOS MATRIX               -->
+    <!-- =============================================================== -->
+    <section class="chart-and-scenarios-grid">
+      <!-- Interactive Price Chart -->
+      <div class="card chart-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h2 class="card-title">Interactive Price Action & Scenario Targets</h2>
+            <span class="card-subtitle">Historical trading candles with Bull/Base/Bear projections</span>
+          </div>
+          <div class="timeframe-buttons" id="timeframe-buttons">
+            <button class="btn-timeframe" data-period="1d">1D</button>
+            <button class="btn-timeframe" data-period="5d">5D</button>
+            <button class="btn-timeframe active" data-period="1mo">1M</button>
+            <button class="btn-timeframe" data-period="6mo">6M</button>
+            <button class="btn-timeframe" data-period="1y">1Y</button>
+          </div>
+        </div>
+
+        <div class="chart-wrapper">
+          <canvas id="price-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Valuation Scenarios Breakdown -->
+      <div class="card scenarios-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h2 class="card-title">Valuation Scenarios</h2>
+            <span class="card-subtitle">Probability-weighted by Jev System One</span>
+          </div>
+          <span class="badge badge-neutral">12M HORIZON</span>
+        </div>
+
+        <div class="scenarios-list" id="scenarios-list">
+          <!-- Bull Case -->
+          <div class="scenario-item bull">
+            <div class="scenario-top">
+              <div class="scenario-tag">BULL CASE</div>
+              <div class="scenario-target" id="sc-bull-target">₹1,954.90</div>
+            </div>
+            <div class="scenario-middle">
+              <span class="scenario-upside positive" id="sc-bull-upside">+59.4% Upside</span>
+              <span class="scenario-prob" id="sc-bull-prob">Jev Prob: 25.0%</span>
+            </div>
+            <div class="scenario-prob-bar">
+              <div class="prob-fill bull-fill" id="sc-bull-fill" style="width: 25%;"></div>
+            </div>
+            <div class="scenario-rationale" id="sc-bull-rationale">
+              Accelerated growth (+38.6%) and 15% multiple expansion
+            </div>
+          </div>
+
+          <!-- Base Case -->
+          <div class="scenario-item base">
+            <div class="scenario-top">
+              <div class="scenario-tag">BASE CASE</div>
+              <div class="scenario-target" id="sc-base-target">₹1,590.64</div>
+            </div>
+            <div class="scenario-middle">
+              <span class="scenario-upside positive" id="sc-base-upside">+29.7% Upside</span>
+              <span class="scenario-prob" id="sc-base-prob">Jev Prob: 75.0%</span>
+            </div>
+            <div class="scenario-prob-bar">
+              <div class="prob-fill base-fill" id="sc-base-fill" style="width: 75%;"></div>
+            </div>
+            <div class="scenario-rationale" id="sc-base-rationale">
+              Consensus revenue growth (+29.7%) and multiple retention
+            </div>
+          </div>
+
+          <!-- Bear Case -->
+          <div class="scenario-item bear">
+            <div class="scenario-top">
+              <div class="scenario-tag">BEAR CASE</div>
+              <div class="scenario-target" id="sc-bear-target">₹1,097.68</div>
+            </div>
+            <div class="scenario-middle">
+              <span class="scenario-upside negative" id="sc-bear-upside">-10.5% Downside</span>
+              <span class="scenario-prob" id="sc-bear-prob">Jev Prob: 0.0%</span>
+            </div>
+            <div class="scenario-prob-bar">
+              <div class="prob-fill bear-fill" id="sc-bear-fill" style="width: 0%;"></div>
+            </div>
+            <div class="scenario-rationale" id="sc-bear-rationale">
+              Revenue deceleration and 20% valuation multiple de-rating
+            </div>
+          </div>
+        </div>
+
+        <div class="scenarios-formula-note">
+          Formula: <code>Expected Target = (0.25 × Bull) + (0.75 × Base) + (0.00 × Bear)</code>
+        </div>
+      </div>
+    </section>
+
+    <!-- =============================================================== -->
+    <!-- 5. JEV SYSTEM ONE SEMANTIC SCORECARD (6 PARALLEL DIMENSIONS)    -->
+    <!-- =============================================================== -->
+    <section class="card scorecard-section">
+      <div class="card-header">
+        <div class="card-title-group">
+          <h2 class="card-title">Jev System One Semantic Scorecard</h2>
+          <span class="card-subtitle">Autonomous qualitative reasoning, calibrated probabilities, and forensic safety</span>
+        </div>
+        <div class="scorecard-model-tag">
+          <span class="pulsing-chip"></span> Model: <strong>jev-1.13.0</strong>
+        </div>
+      </div>
+
+      <div class="scorecard-grid">
+        <!-- 1. Economic Moat -->
+        <div class="score-card-item">
+          <div class="score-card-icon moat-icon">🛡️</div>
+          <div class="score-card-header">
+            <div class="score-card-name">Economic Moat</div>
+            <div class="score-card-badge" id="moat-badge">Narrow Moat</div>
+          </div>
+          <div class="score-card-numeric">
+            <span class="big-score" id="moat-score">1.44</span><span class="score-denom"> / 3.00</span>
+          </div>
+          <div class="score-track">
+            <div class="score-fill" id="moat-fill" style="width: 48%;"></div>
+          </div>
+          <div class="score-card-desc">Evaluates pricing power, network effects, and customer switching friction.</div>
+        </div>
+
+        <!-- 2. Management Conviction -->
+        <div class="score-card-item">
+          <div class="score-card-icon conv-icon">🎯</div>
+          <div class="score-card-header">
+            <div class="score-card-name">Management Conviction</div>
+            <div class="score-card-badge" id="conv-badge">Pragmatic</div>
+          </div>
+          <div class="score-card-numeric">
+            <span class="big-score" id="conv-score">1.97</span><span class="score-denom"> / 3.00</span>
+          </div>
+          <div class="score-track">
+            <div class="score-fill" id="conv-fill" style="width: 65%;"></div>
+          </div>
+          <div class="score-card-desc">Detects evasion vs transparency during quarterly analyst Q&A sessions.</div>
+        </div>
+
+        <!-- 3. Guidance Trajectory -->
+        <div class="score-card-item">
+          <div class="score-card-icon guide-icon">📈</div>
+          <div class="score-card-header">
+            <div class="score-card-name">Forward Guidance</div>
+            <div class="score-card-badge" id="guide-badge">Steady</div>
+          </div>
+          <div class="guidance-distrib">
+            <div class="guidance-row">
+              <span>Accelerating:</span>
+              <b id="guide-p-acc">25%</b>
+            </div>
+            <div class="guidance-row">
+              <span>Steady:</span>
+              <b id="guide-p-ste">75%</b>
+            </div>
+            <div class="guidance-row">
+              <span>Decelerating:</span>
+              <b id="guide-p-dec">0%</b>
+            </div>
+          </div>
+          <div class="score-card-desc">Calibrated probability distribution across revenue trajectory options.</div>
+        </div>
+
+        <!-- 4. Forensic Governance Risk -->
+        <div class="score-card-item">
+          <div class="score-card-icon risk-icon">🔍</div>
+          <div class="score-card-header">
+            <div class="score-card-name">Forensic Governance</div>
+            <div class="score-card-badge safe" id="forensic-badge">SAFE</div>
+          </div>
+          <div class="score-card-numeric">
+            <span class="big-score" id="forensic-score">0.07</span><span class="score-denom"> (Noul)</span>
+          </div>
+          <div class="score-track">
+            <div class="score-fill safe" id="forensic-fill" style="width: 7%;"></div>
+          </div>
+          <div class="score-card-desc">Promoter pledging, auditor stability, and accounting manipulation guard. (Veto &gt; 0.60).</div>
+        </div>
+
+        <!-- 5. Macro & Policy Tailwinds -->
+        <div class="score-card-item">
+          <div class="score-card-icon tail-icon">⚡</div>
+          <div class="score-card-header">
+            <div class="score-card-name">Policy & Macro Tailwinds</div>
+            <div class="score-card-badge" id="tailwind-badge">Strong Tailwinds</div>
+          </div>
+          <div class="tailwind-display">
+            <span class="tailwind-tag" id="tailwind-tag">GOVERNMENT CAPEX / PLI</span>
+          </div>
+          <div class="score-card-desc">Indian Capex/PLI schemes or secular AI/cloud technology drivers.</div>
+        </div>
+
+        <!-- 6. Balance Sheet Solvency -->
+        <div class="score-card-item">
+          <div class="score-card-icon sol-icon">⚖️</div>
+          <div class="score-card-header">
+            <div class="score-card-name">Solvency & Strength</div>
+            <div class="score-card-badge safe" id="solvency-badge">Healthy</div>
+          </div>
+          <div class="solvency-metrics-row">
+            <div>Altman Z: <strong id="sol-altman">2.90</strong></div>
+            <div>Piotroski F: <strong id="sol-piotroski">7 / 9</strong></div>
+          </div>
+          <div class="score-card-desc">Deterministic bankruptcy risk and financial strength scoring.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =============================================================== -->
+    <!-- 6. CATALYSTS, RISKS & BREAKING NEWS STREAM                      -->
+    <!-- =============================================================== -->
+    <section class="catalysts-news-grid">
+      <!-- Left: Investment Catalysts & Risks -->
+      <div class="card thesis-card">
+        <div class="card-header">
+          <h2 class="card-title">Investment Thesis & Risk Audit</h2>
+        </div>
+
+        <div class="thesis-section">
+          <h3 class="thesis-sub-title positive">▲ KEY INVESTMENT CATALYSTS</h3>
+          <ul class="thesis-list" id="catalysts-list">
+            <li>Direct beneficiary of Indian government Capex / PLI tailwinds.</li>
+            <li>Durable operating cash flow and consensus revenue delivery.</li>
+          </ul>
+        </div>
+
+        <div class="thesis-section">
+          <h3 class="thesis-sub-title negative">▼ PRIMARY RISKS TO MONITOR</h3>
+          <ul class="thesis-list" id="risks-list">
+            <li>Vulnerable to competitor price undercutting or commodity input costs.</li>
+            <li>Broad market macroeconomic fluctuations and sector rotation risk.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Right: Real-time Breaking News Stream -->
+      <div class="card news-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h2 class="card-title">Live Breaking News Stream</h2>
+            <span class="card-subtitle">Real-time market disclosures with instant sentiment</span>
+          </div>
+          <span class="live-dot-pulse"></span>
+        </div>
+
+        <div class="news-stream" id="news-stream">
+          <div class="news-item">
+            <div class="news-meta">
+              <span class="news-source">Simply Wall St</span>
+              <span class="news-time">1 day ago</span>
+              <span class="news-sentiment positive">BULLISH</span>
+            </div>
+            <a href="#" target="_blank" class="news-headline">Reliance Gets A Lift From Tax Relief As Valuation Looks Nearly Fair</a>
+            <p class="news-snippet">Reliance Industries benefited from a government cut in windfall taxes on fuel exports while announcing a domestic bond issuance...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =============================================================== -->
+    <!-- 7. COMPREHENSIVE FINANCIAL RATIOS TABLE                         -->
+    <!-- =============================================================== -->
+    <section class="card ratios-table-section">
+      <div class="card-header">
+        <h2 class="card-title">Comprehensive Financial Ratios & Multiples</h2>
+      </div>
+      <div class="ratios-grid" id="ratios-grid">
+        <div class="ratio-cell">
+          <span class="rc-label">Trailing P/E</span>
+          <span class="rc-val" id="rc-pe-trail">22.52</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Forward P/E</span>
+          <span class="rc-val" id="rc-pe-fwd">17.18</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">EV / EBITDA</span>
+          <span class="rc-val" id="rc-ev-ebitda">10.97</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Price to Book</span>
+          <span class="rc-val" id="rc-pb">2.10</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">PEG Ratio</span>
+          <span class="rc-val" id="rc-peg">1.35</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Dividend Yield</span>
+          <span class="rc-val" id="rc-div">0.82%</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Gross Margin</span>
+          <span class="rc-val" id="rc-gross-margin">42.0%</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Operating Margin</span>
+          <span class="rc-val" id="rc-op-margin">16.8%</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Net Profit Margin</span>
+          <span class="rc-val" id="rc-net-margin">8.8%</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Return on Equity (ROE)</span>
+          <span class="rc-val" id="rc-roe">12.4%</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Debt to Equity</span>
+          <span class="rc-val" id="rc-debt-eq">45.2%</span>
+        </div>
+        <div class="ratio-cell">
+          <span class="rc-label">Current Ratio</span>
+          <span class="rc-val" id="rc-curr-ratio">1.32</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Dashboard Javascript -->
+  <script src="/static/app.js"></script>
+</body>
+</html>
